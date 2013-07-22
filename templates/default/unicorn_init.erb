@@ -1,0 +1,190 @@
+#!/bin/bash
+### BEGIN INIT INFO
+
+# Provides:           unicorn
+# Required-Start:     $local_fs $remote_fs $network
+# Required-Stop:      $local_fs $remote_fs $network
+# Default-Start:      2 3 4 5
+# Default-Stop:       0 1 6
+# X-Interactive:      true
+# Short-Description:  Start/stop unicorn server
+### END INIT INFO
+
+# This file was automatically created by Chef.
+# All manual changes are going to be overridden
+#
+# Source: templates/default/unicorn_init.erb
+
+set -e
+
+NAME="unicorn"
+
+
+# Executables with potentially system-dependent paths
+chpst="/usr/bin/chpst"
+bundle="bundle"
+
+sig() {
+  test -s "$PID" && kill -$1 `cat "$PID"`
+}
+
+check_workers() {
+  local expected_workers="$1"
+  test -s "$PID" && {
+    local workers=$(/usr/bin/pgrep -P `cat "$PID"` -f "^unicorn worker" | wc -l)
+    [ $workers -ge $expected_workers ]
+  }
+}
+
+start() {
+  # We exit with 0 (success) if prerequisities are not met to
+  # not fail if there is no code deployed yet
+
+
+  [ $UNICORN_WORKERS -lt 1 ] && {
+    echo >&2 "Not starting because UNICORN_WORKERS is 0."
+    return 0
+  }
+
+  #echo "$chpst -u$USER:$GROUP $bundle exec unicorn -c $UNICORN_CONFIG -D -E $RACK_ENV"
+  "$chpst" "-u$USER:$GROUP" \
+    "$bundle" exec unicorn -c $UNICORN_CONFIG -D -E $RACK_ENV
+}
+
+reload() {
+  if sig 0 && [ -f /proc/$(cat "$PID")/environ ]; then
+    local old_workers="$(egrep -zo "^UNICORN_WORKERS=.*" < /proc/$(cat "$PID")/environ | egrep -o '[0-9]+')"
+  else
+    old_workers=$UNICORN_WORKERS
+  fi
+
+  sig USR2 || {
+    echo >&2 "Couldn't reload $NAME, trying to start..."
+    start
+    return $?
+  }
+
+  echo >&2 "Reloading..."
+  sleep 10 # 10 seconds grace period
+
+  # wait max ~120 seconds
+  waited=0
+  until [ -s "$PID" ] && sig 0 && check_workers $old_workers || [ $waited -gt 120 ]; do
+    sleep 1
+    waited=$((waited+1))
+  done
+  [ $waited -gt 30 ] && echo >&2 "Timeout waiting for reload" || echo >&2 "Reloaded"
+
+  if [ $old_workers -lt $UNICORN_WORKERS ]; then
+    echo >&2 "Increasing number of workers from ${old_workers} to ${UNICORN_WORKERS}..."
+    for (( c=$old_workers; c<$UNICORN_WORKERS; c++ )); do
+      sig TTIN
+      sleep 1
+    done
+  elif [ $UNICORN_WORKERS -lt $old_workers ]; then
+    echo >&2 "Reducing number of workers from ${old_workers} to ${UNICORN_WORKERS}..."
+    for (( c=$UNICORN_WORKERS; c<$old_workers; c++ )); do
+      sig TTOU
+      sleep 1
+    done
+  fi
+}
+
+usage() {
+  echo >&2 "Usage: $0 <start|stop|restart|reload|force-reload|rotate>"
+  exit 1
+}
+
+if [ $# -lt 1 ]; then usage; fi
+
+do_it() {
+  CONFIG=$2
+  . $CONFIG
+
+  [ -r "$APP_ROOT" ] && cd "$APP_ROOT" || {
+    echo >&2 "Directory $APP_ROOT does not exist!"
+    return 0
+  }
+
+  if [ -z "$PID" ]; then
+    PID=$APP_ROOT/tmp/pids/unicorn.pid
+  fi
+
+  if [ -z "$UNICORN_WORKERS" ]; then
+    UNICORN_WORKERS=4
+  fi
+
+  if [ -z "$RACK_ENV" ]; then
+    RACK_ENV=production
+  fi
+
+  if [ -z "$USER" ]; then
+    USER=www-data
+  fi
+
+  if [ -z "$GROUP" ]; then
+    GROUP=www-data
+  fi
+
+  if [ -z "$UNICORN_CONFIG" ]; then
+    UNICORN_CONFIG=$APP_ROOT/config/unicorn.rb
+  fi
+
+  if [ ! -z "$RUBY" ]; then
+    PATH=$RUBY/bin:$PATH
+  fi
+
+  # export for use in unicorn.rb
+  export APP_ROOT
+  export UNICORN_WORKERS
+  export UNICORN_PID=$PID
+  export RACK_ENV
+
+  case $1 in
+  start)
+    sig 0 && { echo >&2 "$NAME is running."; return; }
+    start
+    ;;
+  stop)
+    sig QUIT && return
+    echo >&2 "$NAME was already dead."
+    ;;
+  reload|force-reload)
+    reload
+    ;;
+  restart)
+    stop
+    sleep 5
+    start
+    ;;
+  rotate)
+    sig USR1 && echo "rotated logs OK." && return
+    echo >&2 "Couldn't rotate logs for $NAME."
+    ;;
+  status)
+    sig 0 && { echo >&2 "$NAME is running."; return; }
+    echo >&2 "$NAME is NOT running."
+    return
+    ;;
+  *)
+    usage
+    ;;
+  esac
+
+}
+
+
+# $1 contains the start/stop/etc command
+# $2 if it exists, should be the specific config we want to act on
+export COMMAND=$1
+
+# either run the start/stop/reload/etc command for every config under /etc/unicorn
+# or just do it for a specific one
+if [ -f "/etc/unicorn/$2.conf" ]; then
+  do_it $COMMAND "/etc/unicorn/$2.conf"
+else
+  for CONFIG in /etc/unicorn/*.conf; do
+  do_it $COMMAND $CONFIG
+  done
+fi
+
