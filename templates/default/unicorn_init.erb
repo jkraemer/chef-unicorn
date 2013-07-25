@@ -90,6 +90,11 @@ reload() {
   fi
 }
 
+stop(){
+  sig QUIT && return
+  echo >&2 "$NAME was already dead."
+}
+
 usage() {
   echo >&2 "Usage: $0 <start|stop|restart|reload|force-reload|rotate>"
   exit 1
@@ -135,10 +140,15 @@ do_it() {
   fi
 
   # export for use in unicorn.rb
+  if [ ! -z "$LISTEN" ]; then
+    export LISTEN
+  fi
+
   export APP_ROOT
   export UNICORN_WORKERS
   export UNICORN_PID=$PID
   export RACK_ENV
+
 
   case $1 in
   start)
@@ -146,8 +156,7 @@ do_it() {
     start
     ;;
   stop)
-    sig QUIT && return
-    echo >&2 "$NAME was already dead."
+    stop
     ;;
   reload|force-reload)
     reload
@@ -184,7 +193,8 @@ if [ -f "/etc/unicorn/$2.conf" ]; then
   do_it $COMMAND "/etc/unicorn/$2.conf"
 else
   for CONFIG in /etc/unicorn/*.conf; do
-  do_it $COMMAND $CONFIG
+    echo $CONFIG
+    do_it $COMMAND $CONFIG
   done
 fi
 

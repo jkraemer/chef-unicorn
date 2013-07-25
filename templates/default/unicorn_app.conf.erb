@@ -2,10 +2,22 @@
 RACK_ENV=<%= @rack_env %>
 <% end %>
 APP_ROOT=<%= @app_root %>
+<% if @group %>
+GROUP=<%= @group %>
+<% end %>
 <% if @user %>
 USER=<%= @user %>
 <% end %>
-<% if @start_cmd %>
-START_CMD="<%= @start_cmd %>"
+<% if @listen %>
+LISTEN="<%= @listen %>"
+<% end %>
+<% if @ruby %>
+RUBY=<%= @ruby %>
+<% end %>
+<% if @config %>
+UNICORN_CONFIG=<%= @config %>
+<% end %>
+<% if @workers %>
+UNICORN_WORKERS=<%= @workers %>
 <% end %>
 
