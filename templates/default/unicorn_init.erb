@@ -124,11 +124,11 @@ do_it() {
   fi
 
   if [ -z "$USER" ]; then
-    USER=www-data
+    USER=<%= @node[:unicorn][:user] %>
   fi
 
   if [ -z "$GROUP" ]; then
-    GROUP=www-data
+    GROUP=<%= @node[:unicorn][:group] %>
   fi
 
   if [ -z "$UNICORN_CONFIG" ]; then
