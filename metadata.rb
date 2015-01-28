@@ -1,3 +1,4 @@
+name             "unicorn"
 maintainer       "Jens Kraemer"
 maintainer_email "jk@jkraemer.net"
 license          "MIT"
